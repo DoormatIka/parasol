@@ -4,29 +4,45 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"reflect"
 	"regexp"
 	"strings"
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
 );
+var command_regex, err = regexp.Compile(`!!(\w+)\s(.+)`);
 
-var command_regex, err = regexp.Compile(`\?\?(\w+)\s(.+)`);
+type Commands struct {
+	ping Command
+};
+type Command struct {
+	description string
+	execute func(s *discordgo.Session, m *discordgo.MessageCreate, args []string)
+};
 
-type Commands struct {};
-
-func (p *Commands) RunCommand(s string) {
-	matches := command_regex.FindStringSubmatch(`??quit args1 arg5`);
-	if matches != nil {
-		command := matches[1];
-		args := strings.Split(matches[2], " ");
-		// how do i get the command name and activate the ping command?
-		// my idea rn is to make a map[string]func and just do a get(), but there has to be a better way?
+func (c *Commands) findCommand(name string) *Command {
+	t := reflect.TypeOf(c).Elem();
+	v := reflect.ValueOf(c).Elem();
+	for i := 0; i < t.NumField(); i++ {
+		method := t.Field(i);
+		if method.Name == name {
+			cmd := v.Field(i).Interface().(Command);
+			return &cmd;
+		}
 	}
+	return nil;
 }
 
-func (c *Commands) Ping(s *discordgo.Session, msg *discordgo.MessageCreate) {
-	
+func (c *Commands) RunCommand(sesh *discordgo.Session, msg *discordgo.MessageCreate) {
+	matches := command_regex.FindStringSubmatch(msg.Content);
+	println(matches);
+	if matches != nil {
+		name := matches[1];
+		args := strings.Split(matches[2], " ");
+		cmd := c.findCommand(name);
+		cmd.execute(sesh, msg, args);
+	}
 }
 
 // To run, do `BOT_TOKEN="TOKEN HERE" go run .`
@@ -37,6 +53,18 @@ func main() {
 	if err != nil {
 		log.Fatalln("Regex:", err);
 	}
+	commands := &Commands{
+		ping: Command{ 
+			description: "Responds with pong.",
+			execute: func(s *discordgo.Session, m *discordgo.MessageCreate, args []string) {
+				_, err := s.ChannelMessageSendReply(m.ChannelID, "Pong.", m.Reference());
+				if err != nil {
+					println("Error: ", err);
+				}
+			},
+		},
+	};
+
 
 	token := os.Getenv("BOT_TOKEN");
 	if token == "" {
@@ -46,7 +74,12 @@ func main() {
 	if err != nil {
 		log.Fatalln("Error opening connection,", err);
 	}
-	dg.AddHandler(MessageCreate);
+	dg.AddHandler(func (s *discordgo.Session, m *discordgo.MessageCreate) {
+		if m.Author.Bot {
+			return;
+		}
+		commands.RunCommand(s, m);
+	});
 	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentMessageContent;
 
 	if err := dg.Open(); err != nil {
@@ -61,14 +94,3 @@ func main() {
 	dg.Close();
 }
 
-func MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.Bot {
-		return;
-	}
-	if m.Content == "!!ping" {
-		_, err := s.ChannelMessageSendReply(m.ChannelID, "Pyon.", m.Reference());
-		if err != nil {
-			log.Println("Ping failed to send reply.", err);
-		}
-	}
-}
