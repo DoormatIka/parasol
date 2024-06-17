@@ -11,10 +11,10 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 );
-var command_regex, err = regexp.Compile(`!!(\w+)\s(.+)`);
+var command_regex, err = regexp.Compile(`^!!(\w+)\s([\s\S+]+)$`);
 
 type Commands struct {
-	ping Command
+	Ping Command
 };
 type Command struct {
 	description string
@@ -26,7 +26,7 @@ func (c *Commands) findCommand(name string) *Command {
 	v := reflect.ValueOf(c).Elem();
 	for i := 0; i < t.NumField(); i++ {
 		method := t.Field(i);
-		if method.Name == name {
+		if strings.ToLower(method.Name) == name {
 			cmd := v.Field(i).Interface().(Command);
 			return &cmd;
 		}
@@ -35,13 +35,15 @@ func (c *Commands) findCommand(name string) *Command {
 }
 
 func (c *Commands) RunCommand(sesh *discordgo.Session, msg *discordgo.MessageCreate) {
+	println(msg.Content);
 	matches := command_regex.FindStringSubmatch(msg.Content);
-	println(matches);
 	if matches != nil {
 		name := matches[1];
 		args := strings.Split(matches[2], " ");
 		cmd := c.findCommand(name);
-		cmd.execute(sesh, msg, args);
+		if cmd != nil {
+			cmd.execute(sesh, msg, args);
+		}
 	}
 }
 
@@ -54,7 +56,7 @@ func main() {
 		log.Fatalln("Regex:", err);
 	}
 	commands := &Commands{
-		ping: Command{ 
+		Ping: Command{ 
 			description: "Responds with pong.",
 			execute: func(s *discordgo.Session, m *discordgo.MessageCreate, args []string) {
 				_, err := s.ChannelMessageSendReply(m.ChannelID, "Pong.", m.Reference());
